@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="sat-map">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -1078,10 +1078,16 @@ button{cursor:pointer}
 /* ---------- views ---------- */
 .view{position:fixed;left:0;right:0;top:var(--top-h,112px);bottom:calc(var(--tab-h) + var(--sab))}
 #map{background:var(--panel2)}
-html:not(.light) .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7)}
+html:not(.light):not(.sat-map) .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7)}
 .leaflet-container{font:inherit;background:var(--panel2)}
 .leaflet-control-attribution{font-size:10px;background:color-mix(in srgb,var(--panel) 80%,transparent)!important;color:var(--mute)}
 .leaflet-control-attribution a{color:var(--mute)}
+.leaflet-control-layers{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.leaflet-touch .leaflet-control-layers-toggle,.leaflet-control-layers-toggle{width:44px;height:44px;border-radius:12px;background-color:#fff;background-size:26px 26px}
+.leaflet-control-layers-expanded{padding:8px 14px 10px;background:var(--panel);color:var(--ink);border-radius:12px}
+.leaflet-control-layers label{margin:0;font-size:15px;font-weight:650;min-height:40px;display:flex;align-items:center;gap:8px}
+.leaflet-control-layers input{accent-color:var(--accent);width:18px;height:18px;flex:none}
+.leaflet-top.leaflet-right{margin-top:8px;margin-right:calc(4px + var(--sar))}
 #recenter{position:absolute;z-index:500;right:calc(12px + var(--sar));bottom:16px;width:48px;height:48px;border-radius:14px;border:1px solid var(--line);
   background:var(--panel);box-shadow:0 6px 20px rgba(0,0,0,.3);display:grid;place-items:center;color:var(--you)}
 #recenter svg{width:22px;height:22px}
@@ -1305,13 +1311,12 @@ textarea.in{min-height:80px;resize:vertical}
 /* ===================== settings ===================== */
 const CONFIG = {
   fallbackCenter: { lat: 35.9606, lng: -83.9207 },   // Knoxville, used without location
-  tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-  tileAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  houseZoom: 19,               // zoom used when a pin or list item is opened, so the roof is visible
   photoMaxSide: 1280, photoQuality: 0.7,
   listPage: 60,
   storageBudgetMB: 50          // only for the meter bar; real limit is set by iOS
 };
-const LS = { recs: "installs.local.v1", company: "installs.lastCompany", theme: "installs.theme", geo: "installs.geocache" };
+const LS = { recs: "installs.local.v1", company: "installs.lastCompany", theme: "installs.theme", geo: "installs.geocache", basemap: "installs.basemap" };
 const COMPANIES = { "Gold Medal Roofing": "gm", "Perimeter Roofing": "pm" };
 
 /* ===================== helpers ===================== */
@@ -1450,12 +1455,31 @@ async function hydrateImgs(root) {
 let map, cluster, youMarker, markers = new Map();
 const pinIcon = (c, isLocal) => L.divIcon({ className: "", html: '<div class="pin ' + c + (isLocal ? " local" : "") + '"><i></i></div>', iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -24] });
 const ICONS = { gm: pinIcon("gm"), pm: pinIcon("pm"), gmL: pinIcon("gm", 1), pmL: pinIcon("pm", 1) };
+const SAT_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const esriTile = (path, attr) => L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/" + path + "/MapServer/tile/{z}/{y}/{x}", { maxZoom: 21, maxNativeZoom: 19, attribution: attr || "" });
+let baseLayers;
+function applyBasemapClass(name) {
+  document.documentElement.classList.toggle("sat-map", name === "Satellite");
+}
 function initMap() {
   const o = origin();
-  map = L.map("map", { zoomControl: false, attributionControl: true }).setView([o.lat, o.lng], me ? 13 : 11);
-  L.tileLayer(CONFIG.tileUrl, { maxZoom: 19, attribution: CONFIG.tileAttribution }).addTo(map);
+  map = L.map("map", { zoomControl: false, attributionControl: true, maxZoom: 21 }).setView([o.lat, o.lng], me ? 13 : 11);
+  const satellite = L.layerGroup([
+    esriTile("World_Imagery", SAT_ATTR),
+    esriTile("Reference/World_Transportation"),
+    esriTile("Reference/World_Boundaries_and_Places")
+  ]);
+  const street = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 21, maxNativeZoom: 19, attribution: OSM_ATTR });
+  baseLayers = { "Satellite": satellite, "Street": street };
+  const startName = lsGet(LS.basemap, "Satellite") === "Street" ? "Street" : "Satellite";
+  baseLayers[startName].addTo(map);
+  applyBasemapClass(startName);
+  L.control.layers(baseLayers, null, { position: "topright", collapsed: true }).addTo(map);
+  map.on("baselayerchange", e => { applyBasemapClass(e.name); try { lsSet(LS.basemap, e.name); } catch (err) {} });
   cluster = L.markerClusterGroup({
     chunkedLoading: true, showCoverageOnHover: false, maxClusterRadius: 50, spiderfyOnMaxZoom: true,
+    disableClusteringAtZoom: 18,
     iconCreateFunction: cl => {
       const ms = cl.getAllChildMarkers(), n = ms.length, gm = ms.filter(m => m.options.co === "gm").length;
       const s = n < 10 ? 34 : n < 100 ? 40 : 48, p = Math.round(gm / n * 100);
@@ -1465,6 +1489,11 @@ function initMap() {
   }).addTo(map);
   map.on("popupopen", e => hydrateImgs(e.popup.getElement()));
   placeYou();
+}
+function zoomToHouse(m) {
+  if (!map || !m) return;
+  const z = Math.max(map.getZoom(), CONFIG.houseZoom);
+  map.setView(m.getLatLng(), Math.min(z, map.getMaxZoom()), { animate: true });
 }
 function placeYou() {
   if (!map) return;
@@ -1477,6 +1506,7 @@ function renderMap() {
     const c = COMPANIES[r.company] || "gm";
     const m = L.marker([r.lat, r.lng], { icon: ICONS[c + (r.local ? "L" : "")], co: c, title: [r.name, r.address].filter(Boolean).join(" · ") });
     m.bindPopup(() => cardHtml(r, true), { maxWidth: 280, autoPanPaddingTopLeft: [10, 20] });
+    m.on("click", () => zoomToHouse(m));
     markers.set(r.id, m); return m;
   });
   cluster.addLayers(ms);
@@ -1484,7 +1514,10 @@ function renderMap() {
 function showOnMap(id) {
   const m = markers.get(id); if (!m) return;
   switchView("map");
-  setTimeout(() => { map.invalidateSize(); cluster.zoomToShowLayer(m, () => m.openPopup()); }, 60);
+  setTimeout(() => {
+    map.invalidateSize();
+    cluster.zoomToShowLayer(m, () => { zoomToHouse(m); m.openPopup(); });
+  }, 60);
 }
 
 /* ===================== list ===================== */
