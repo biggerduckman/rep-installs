@@ -323,12 +323,19 @@ def main():
         "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "jobs": jobs,
     }
-    JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    json_changed = True
+    if JSON_PATH.exists():
+        try:
+            json_changed = json.loads(JSON_PATH.read_text(encoding="utf-8")).get("jobs") != jobs
+        except Exception:
+            json_changed = True
+    if json_changed:
+        JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
 
     gm = sum(1 for r in jobs if r["company"] == "Gold Medal Roofing")
     pm = sum(1 for r in jobs if r["company"] == "Perimeter Roofing")
     print(f"-> {CSV_PATH} ({'updated' if csv_changed else 'unchanged'})")
-    print(f"-> {JSON_PATH} ({JSON_PATH.stat().st_size:,} bytes)")
+    print(f"-> {JSON_PATH} ({JSON_PATH.stat().st_size:,} bytes, {'updated' if json_changed else 'unchanged'})")
     print(f"read {stats['read']} | published {stats['published']} | Gold Medal {gm} | Perimeter {pm}")
     print(
         f"excluded {stats['excluded']} | lien {stats['lien']} | duplicates {stats['dups']} | "
