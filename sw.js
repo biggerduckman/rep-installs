@@ -1,5 +1,5 @@
-/* Installs app service worker (v4). Network-first so iPhones pick up new builds. */
-const VERSION = "installs-v4";
+/* Rep Installs service worker (v5). Network-first so iPhones pick up new builds. */
+const VERSION = "installs-v5";
 
 self.addEventListener("install", event => {
   event.waitUntil(self.skipWaiting());
